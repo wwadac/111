@@ -57,14 +57,19 @@ _last_reply: dict[tuple[str, int], float] = {}
 
 
 def _cooldown_ok(connection_id: str, chat_id: int) -> bool:
+    """Check (without mutating) whether autoreply is allowed for this chat."""
+
     cooldown = get_settings().autoreply_cooldown_sec
     key = (connection_id, int(chat_id))
     now = time.monotonic()
     last = _last_reply.get(key, 0.0)
-    if now - last < cooldown:
-        return False
-    _last_reply[key] = now
-    return True
+    return now - last >= cooldown
+
+
+def _mark_replied(connection_id: str, chat_id: int) -> None:
+    """Stamp the per-chat cooldown — call ONLY after a successful send."""
+
+    _last_reply[(connection_id, int(chat_id))] = time.monotonic()
 
 
 # ─── matching ───────────────────────────────────────────────────────────────
@@ -142,6 +147,12 @@ async def try_autoreply(
         )
     except Exception as exc:  # noqa: BLE001
         log.warning("autoreply send failed: %s", exc)
+        return
+
+    # Only consume the cooldown slot after a successful delivery so that
+    # transient send failures don't silently block the chat for the full
+    # cooldown window.
+    _mark_replied(message.business_connection_id, message.chat.id)
 
 
 # ─── keyboards ──────────────────────────────────────────────────────────────

@@ -261,12 +261,21 @@ async def forward_media(
         await _send_by_download(bot, owner_id, msg, caption)
     except Exception as exc:  # noqa: BLE001
         log.exception("media forward fully failed: %s", exc)
-        await bot.send_message(
-            owner_id,
-            caption
-            + "\n\n"
-            + ui.i(f"(не удалось скопировать файл: {ui.safe(str(exc))})"),
-        )
+        # The terminal notification can itself fail (e.g. owner blocked
+        # the bot or never started it); swallow that secondary error so
+        # the update handler still returns cleanly.
+        try:
+            await bot.send_message(
+                owner_id,
+                caption
+                + "\n\n"
+                + ui.i(f"(не удалось скопировать файл: {ui.safe(str(exc))})"),
+            )
+        except Exception as notify_exc:  # noqa: BLE001
+            log.warning(
+                "failed to notify owner about media forward failure: %s",
+                notify_exc,
+            )
 
 
 # ─── persistence ────────────────────────────────────────────────────────────
@@ -314,19 +323,27 @@ async def on_business_message(message: Message, bot: Bot) -> None:
     is_from_bot = bool(getattr(message, "sender_business_bot", None))
 
     # 1) Reply-trigger: any reply to a message with media → forward that media.
+    #    Decoupled from auto-capture toggles so it always works as the manual
+    #    "save this" gesture documented in the README. We skip replies that
+    #    originate from another bot acting on the user's behalf
+    #    (``sender_business_bot``) to avoid feedback loops with our own
+    #    autoreplies.
     reply = message.reply_to_message
-    if reply and any(getattr(reply, k, None) for k in MEDIA_KINDS):
-        if settings["capture_one_time"] or settings["capture_all_media"]:
-            if _dedup_capture(
-                message.business_connection_id, reply.chat.id, reply.message_id
-            ):
-                await forward_media(
-                    bot,
-                    reply,
-                    owner_id,
-                    title="Медиа по reply-триггеру",
-                    source=f"ответ от {sender_label(message)}",
-                )
+    if (
+        reply
+        and not is_from_bot
+        and any(getattr(reply, k, None) for k in MEDIA_KINDS)
+    ):
+        if _dedup_capture(
+            message.business_connection_id, reply.chat.id, reply.message_id
+        ):
+            await forward_media(
+                bot,
+                reply,
+                owner_id,
+                title="Медиа по reply-триггеру",
+                source=f"ответ от {sender_label(message)}",
+            )
 
     # 2) Direct media capture for incoming messages.
     if not is_from_owner and not is_from_bot:
