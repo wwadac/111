@@ -1,0 +1,32 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Local env
+.env
+.env.local
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# DB / runtime artefacts
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Tooling caches
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
